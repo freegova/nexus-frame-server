@@ -21,6 +21,16 @@ function extractVideoId(url) {
   return match ? match[1] : null;
 }
 
+function selectEvenlySpaced(arr, count) {
+  if (arr.length <= count) return arr;
+  const result = [];
+  const step = (arr.length - 1) / (count - 1);
+  for (let i = 0; i < count; i++) {
+    result.push(arr[Math.round(i * step)]);
+  }
+  return result;
+}
+
 async function downloadAndExtractFrames(videoId) {
   const tmpDir = "/tmp/" + videoId;
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
@@ -29,12 +39,21 @@ async function downloadAndExtractFrames(videoId) {
   if (!fs.existsSync(framesDir)) fs.mkdirSync(framesDir);
   const cookieFlag = fs.existsSync(cookiesPath) ? "--cookies " + cookiesPath : "";
   execSync("yt-dlp -f \"worst[ext=mp4]/worst\" --no-playlist --remote-components ejs:github " + cookieFlag + " -o \"" + videoPath + "\" \"https://www.youtube.com/watch?v=" + videoId + "\"", { timeout: 300000 });
-  execSync("ffmpeg -i \"" + videoPath + "\" -vf \"fps=1/30,scale=640:360\" \"" + framesDir + "/frame_%03d.jpg\"", { timeout: 60000 });
-  const frameFiles = fs.readdirSync(framesDir).filter(f => f.endsWith(".jpg")).sort();
-  const frames = frameFiles.slice(0, 12).map((file, i) => ({
-    timestamp: "~" + (i * 30) + "s into fight",
-    base64: fs.readFileSync(path.join(framesDir, file)).toString("base64")
-  }));
+  execSync("ffmpeg -i \"" + videoPath + "\" -vf \"fps=1/10,scale=640:360\" \"" + framesDir + "/frame_%04d.jpg\"", { timeout: 180000 });
+  const allFrameFiles = fs.readdirSync(framesDir).filter(f => f.endsWith(".jpg")).sort();
+  console.log("Total frames extracted:", allFrameFiles.length);
+  const selectedFiles = selectEvenlySpaced(allFrameFiles, 20);
+  const frames = selectedFiles.map((file, i) => {
+    const frameIndex = allFrameFiles.indexOf(file);
+    const timeSeconds = frameIndex * 10;
+    const minutes = Math.floor(timeSeconds / 60);
+    const seconds = timeSeconds % 60;
+    const timestamp = minutes + ":" + String(seconds).padStart(2, "0");
+    return {
+      timestamp: timestamp,
+      base64: fs.readFileSync(path.join(framesDir, file)).toString("base64")
+    };
+  });
   try { execSync("rm -rf \"" + tmpDir + "\""); } catch {}
   return frames;
 }
