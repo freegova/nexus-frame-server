@@ -14,9 +14,6 @@ if (process.env.YOUTUBE_COOKIES_B64) {
   const decoded = Buffer.from(process.env.YOUTUBE_COOKIES_B64, "base64").toString("utf8");
   fs.writeFileSync(cookiesPath, decoded);
   console.log("YouTube cookies decoded and loaded");
-} else if (process.env.YOUTUBE_COOKIES) {
-  fs.writeFileSync(cookiesPath, process.env.YOUTUBE_COOKIES);
-  console.log("YouTube cookies loaded from environment");
 }
 
 function extractVideoId(url) {
@@ -31,7 +28,7 @@ async function downloadAndExtractFrames(videoId) {
   const framesDir = tmpDir + "/frames";
   if (!fs.existsSync(framesDir)) fs.mkdirSync(framesDir);
   const cookieFlag = fs.existsSync(cookiesPath) ? "--cookies " + cookiesPath : "";
-  execSync("yt-dlp -f \"worst[ext=mp4]/worst\" --no-playlist " + cookieFlag + " -o \"" + videoPath + "\" \"https://www.youtube.com/watch?v=" + videoId + "\"", { timeout: 180000 });
+  execSync("yt-dlp -f \"worst[ext=mp4]/worst\" --no-playlist --remote-components ejs:github " + cookieFlag + " -o \"" + videoPath + "\" \"https://www.youtube.com/watch?v=" + videoId + "\"", { timeout: 300000 });
   execSync("ffmpeg -i \"" + videoPath + "\" -vf \"fps=1/30,scale=640:360\" \"" + framesDir + "/frame_%03d.jpg\"", { timeout: 60000 });
   const frameFiles = fs.readdirSync(framesDir).filter(f => f.endsWith(".jpg")).sort();
   const frames = frameFiles.slice(0, 12).map((file, i) => ({
