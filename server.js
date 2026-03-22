@@ -1,14 +1,19 @@
 const express = require("express");
 const cors = require("cors");
-const ytdl = require("ytdl-core");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
-const https = require("https");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Write cookies to temp file if env var exists
+const cookiesPath = "/tmp/yt-cookies.txt";
+if (process.env.YOUTUBE_COOKIES) {
+  fs.writeFileSync(cookiesPath, process.env.YOUTUBE_COOKIES);
+  console.log("Cookies written to", cookiesPath);
+}
 
 function extractVideoId(url) {
   const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -18,36 +23,38 @@ function extractVideoId(url) {
 async function downloadAndExtractFrames(videoId) {
   const tmpDir = "/tmp/" + videoId;
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-  
+
   const videoPath = tmpDir + "/video.mp4";
   const framesDir = tmpDir + "/frames";
   if (!fs.existsSync(framesDir)) fs.mkdirSync(framesDir);
 
-  // Download video using yt-dlp
-  execSync(`yt-dlp -f "worst[ext=mp4]/worst" --no-playlist -o "${videoPath}" "https://www.youtube.com/watch?v=${videoId}"`, {
-    timeout: 120000
+  const cookieFlag = fs.existsSync(cookiesPath) ? `--cookies "${cookiesPath}"` : "";
+
+  execSync(`yt-dlp -f "worst[ext=mp4]/worst" --no-playlist ${cookieFlag} -o "${videoPath}" "https://www.youtube.com/watch?v=${videoId}"`, {
+    timeout: 180000
   });
 
-  // Extract frames every 30 seconds using ffmpeg
   execSync(`ffmpeg -i "${videoPath}" -vf "fps=1/30,scale=640:360" "${framesDir}/frame_%03d.jpg"`, {
     timeout: 60000
   });
 
-  // Read frames as base64
   const frameFiles = fs.readdirSync(framesDir).filter(f => f.endsWith(".jpg")).sort();
   const frames = frameFiles.slice(0, 12).map((file, i) => ({
-    timestamp: "~" + (i * 30) + "s",
+    timestamp: "~" + (i * 30) + "s into fight",
     base64: fs.readFileSync(path.join(framesDir, file)).toString("base64")
   }));
 
-  // Cleanup
   try { execSync(`rm -rf "${tmpDir}"`); } catch {}
 
   return frames;
 }
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "nexus-frame-server" });
+  res.json({ 
+    status: "ok", 
+    service: "nexus-frame-server",
+    hasCookies: fs.existsSync(cookiesPath)
+  });
 });
 
 app.post("/frames", async (req, res) => {
@@ -60,7 +67,7 @@ app.post("/frames", async (req, res) => {
   try {
     console.log("Extracting frames for:", videoId);
     const frames = await downloadAndExtractFrames(videoId);
-    
+
     if (frames.length === 0) {
       return res.status(404).json({ error: "No frames extracted" });
     }
@@ -73,9 +80,9 @@ app.post("/frames", async (req, res) => {
     });
   } catch (error) {
     console.error("Frame extraction error:", error.message);
-    return res.status(500).json({ 
-      error: "Failed to extract frames", 
-      details: error.message 
+    return res.status(500).json({
+      error: "Failed to extract frames",
+      details: error.message
     });
   }
 });
